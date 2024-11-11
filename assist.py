@@ -1,46 +1,43 @@
-from openai import OpenAI
 import time
 from pygame import mixer
 import os
-from dotenv import load_dotenv
+import pyttsx3  # Local TTS library
+from transformers import AutoTokenizer, AutoModelForCausalLM  # For local model
 
-# Load environment variables from .env file
-load_dotenv()
+# Initialize the local model and tokenizer
+model_name = "path/to/your/local/model"  # Replace with the actual path to your local model
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
 
-#https://platform.openai.com/playground/assistants
-# Initialize the client and mixer
-client = OpenAI(default_headers={"OpenAI-Beta": "assistants=v2"}, api_key= os.getenv('API_KEY'))
+# Initialize the mixer for audio playback
 mixer.init()
 
+# Initialize pyttsx3 TTS engine for local TTS
+tts_engine = pyttsx3.init()
 
-
-# Retrieve the assistant and thread
-assistant = client.beta.assistants.retrieve(os.getenv('ASSISTANT_ID'))
-thread = client.beta.threads.retrieve(os.getenv('THREAD_ID'))
-
+# Function to use the local model for generating responses
 def ask_question_memory(question):
-    global thread
-    client.beta.threads.messages.create(thread.id, role="user", content=question)
-    run = client.beta.threads.runs.create(thread_id=thread.id, assistant_id=assistant.id)
-    
-    while (run_status := client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)).status != 'completed':
-        if run_status.status == 'failed':
-            return "The run failed."
-        time.sleep(1)
-    
-    messages = client.beta.threads.messages.list(thread_id=thread.id)
-    return messages.data[0].content[0].text.value
+    # Tokenize the input question
+    inputs = tokenizer(question, return_tensors="pt")
+    # Generate a response using the model
+    outputs = model.generate(inputs.input_ids, max_length=200, num_return_sequences=1)
+    # Decode and return the response text
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    return response
 
+# Function to generate TTS locally and save it as a file
 def generate_tts(sentence, speech_file_path):
-    response = client.audio.speech.create(model="tts-1", voice="echo", input=sentence)
-    response.stream_to_file(speech_file_path)
-    return str(speech_file_path)
+    tts_engine.save_to_file(sentence, speech_file_path)
+    tts_engine.runAndWait()
+    return speech_file_path
 
+# Play the generated TTS audio
 def play_sound(file_path):
     mixer.music.load(file_path)
     mixer.music.play()
 
-def TTS(text):
+# Main TTS function that generates audio and plays it
+def tts(text):
     speech_file_path = generate_tts(text, "speech.mp3")
     play_sound(speech_file_path)
     while mixer.music.get_busy():
@@ -49,6 +46,7 @@ def TTS(text):
     os.remove(speech_file_path)
     return "done"
 
-# question = "make it slightly vary every time"
+# Example call (uncomment to test in isolation)
+# question = "What is the weather today?"
 # response = ask_question_memory(question)
 # print(response)
